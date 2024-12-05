@@ -1,5 +1,8 @@
+require("dotenv").config();
 const express = require("express");
+const jwt = require("jsonwebtoken");
 const db = require("better-sqlite3")("ourApp.db");
+const bcrypt = require("bcrypt");
 db.pragma("journal_mode = WAL");
 
 const createTable = db.transaction(() => {
@@ -27,6 +30,21 @@ app.use(express.static("public"));
 
 app.use(function (req, res, next) {
   res.locals.errors = [];
+
+  try {
+    const decoded = jwt.verify(
+      request.cookies.ourSimpleApp,
+      process.env.JWTSECRET
+    );
+    req.user = decoded;
+  } catch (error) {
+    req.user = false;
+    console.log(error);
+  }
+
+  res.locals.user = req.user;
+  console.log(req.user);
+
   next();
 });
 
@@ -64,6 +82,37 @@ app.post("/register", (req, res) => {
   if (errors.length) {
     return res.render("homepage", { errors });
   }
+
+  const salt = bcrypt.genSaltSync(10);
+  req.body.password = bcrypt.hashSync(req.body.password, salt);
+
+  const ourStatement = db.prepare(
+    "INSERT INTO users (username, password) VALUES (?, ?)"
+  );
+
+  const result = ourStatement.run(req.body.username, req.body.password);
+
+  const lookupStatement = db.prepare("SELECT * FROM users WHERE ROWID = ?");
+  const ourUser = lookupStatement.get(result.lastInsertRowid);
+
+  const ourTokenValue = jwt.sign(
+    {
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 60 * 24,
+      skyColor: "blue",
+      userid: ourUser.id,
+      username: ourUser.username,
+    },
+    process.env.JWTSECRET
+  );
+
+  res.cookie("ourSimpleApp", ourTokenValue, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 1000 * 60 * 60 * 24,
+  });
+
+  res.send("Thank you!");
 });
 
 app.listen(3000, () => {
