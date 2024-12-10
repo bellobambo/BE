@@ -1,8 +1,9 @@
 require("dotenv").config();
 const express = require("express");
+const bcrypt = require("bcrypt");
+const cookieParser = require("cookie-parser");
 const jwt = require("jsonwebtoken");
 const db = require("better-sqlite3")("ourApp.db");
-const bcrypt = require("bcrypt");
 db.pragma("journal_mode = WAL");
 
 const createTable = db.transaction(() => {
@@ -27,15 +28,13 @@ app.use(express.json());
 
 app.set("view engine", "ejs");
 app.use(express.static("public"));
+app.use(cookieParser());
 
 app.use(function (req, res, next) {
   res.locals.errors = [];
 
   try {
-    const decoded = jwt.verify(
-      request.cookies.ourSimpleApp,
-      process.env.JWTSECRET
-    );
+    const decoded = jwt.verify(req.cookies.ourSimpleApp, process.env.JWTSECRET);
     req.user = decoded;
   } catch (error) {
     req.user = false;
@@ -49,11 +48,74 @@ app.use(function (req, res, next) {
 });
 
 app.get("/", (req, res) => {
+  if (req.user) {
+    return res.render("dashboard");
+  }
   res.render("homepage");
 });
 
 app.get("/login", (req, res) => {
   res.render("login");
+});
+
+app.post("/login", (req, res) => {
+  let errors = [];
+
+  if (typeof req.body.username !== "string") req.body.username = "";
+  if (typeof req.body.password !== "string") req.body.password = "";
+
+  if (req.body.username.trim() == "") errors = ["Invalid username/ password"];
+  if (req.body.password.trim() == "") errors = ["Invalid username/ password"];
+
+  if (errors.length) {
+    return res.render("login", { errors });
+  }
+
+  const userInQuestState = db.prepare("SELECT * FROM users WHERE USERNAME = ?");
+  const userInQuest = userInQuestState.get(req.body.username);
+
+  if (!userInQuest) {
+    errors = ["invalid username/ password"];
+    return res.render("login", { errors });
+  }
+
+  const matchOrNot = bcrypt.compareSync(
+    req.body.password,
+    userInQuest.password
+  );
+
+  if (!matchOrNot) {
+    errors = ["Invalid username/ password"];
+    return res.render("login", { errors });
+  }
+
+  const ourTokenValue = jwt.sign(
+    {
+      exp: Math.floor(Date.now() / 1000) + 60 * 60 * 60 * 24,
+      skyColor: "blue",
+      userid: userInQuest.id,
+      username: userInQuest.username,
+    },
+    process.env.JWTSECRET
+  );
+
+  res.cookie("ourSimpleApp", ourTokenValue, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "strict",
+    maxAge: 1000 * 60 * 60 * 24,
+  });
+
+  res.redirect("/");
+});
+
+app.get("/logout", (req, res) => {
+  res.clearCookie("ourSimpleApp");
+  res.redirect("/");
+});
+
+app.get("/create-post", (req, res) => {
+  res.render("create-post");
 });
 
 app.post("/register", (req, res) => {
@@ -72,6 +134,13 @@ app.post("/register", (req, res) => {
 
   if (req.body.username && !req.body.username.match(/^[a-zA-Z0-9]+$/))
     errors.push("Username can only contain letters and numbers");
+
+  const usernameStatement = db.prepare(
+    "SELECT * FROM users WHERE username = ?"
+  );
+  const usernameCheck = usernameStatement.get(req.body.username);
+
+  if (usernameCheck) errors.push("That username is already taken");
 
   if (!req.body.password) errors.push("You  must provide a Password");
   if (!req.body.password && req.body.length < 8)
@@ -112,7 +181,7 @@ app.post("/register", (req, res) => {
     maxAge: 1000 * 60 * 60 * 24,
   });
 
-  res.send("Thank you!");
+  res.redirect("/");
 });
 
 app.listen(3000, () => {
