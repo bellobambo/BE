@@ -6,12 +6,22 @@
     <%- include('includes/header') %>
 
     <main>
-      <h2>Welcome To Dashboard</h2>
-      <p>
-        Lorem ipsum dolor sit amet, consectetur adipisicing elit. Magni
-        consectetur illo odio quos, voluptas autem magnam? Exercitationem
-        laborum ad vero.
-      </p>
+      <% if (posts.length == 0) { %>
+      <h4>Hello <%= user.username %>, you do not have any posts yet.</h4>
+      <% } else { %>
+      <h4>Hello <%= user.username %>, here are your posts:</h4>
+      <% } %>
+
+      <ol>
+        <% posts.forEach(post =>{%>
+        <li>
+          <a href="/post/<%= post.id %>"><%= post.title %></a> on <%= new
+          Date(post.createdDate).getMonth() + 1 %>/ <%= new
+          Date(post.createdDate).getDate() %> / <%= new
+          Date(post.createdDate).getFullYear() %> %>
+        </li>
+        <% }) %>
+      </ol>
     </main>
 
     <%- include('includes/footer') %>
